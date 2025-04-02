@@ -2,27 +2,29 @@ import threading
 import random
 import time
 
-served = []
+customers_left = 0
 waiting = []
 
 condition = threading.Condition()
+customerLimit = threading.Lock()
 
 manager = threading.Semaphore( 1 )
 safe = threading.Semaphore( 2 )
 door = threading.Semaphore( 2 )
 
-tellers_ready_barrier = threading.Barrier( 2 )
+tellers_ready_barrier = threading.Barrier( 3 )
 tellers_ready_event = threading.Event()
 
 
 class Teller(threading.Thread):
-    global readyTellers
 
     def __init__(self, id):
         super().__init__()
         self.id = id
 
     def run(self):
+        global customers_left
+
         print( f'Teller {self.id} []: ready to serve' )  
         print( f'Teller {self.id} []: waiting for a customer' )
 
@@ -30,45 +32,50 @@ class Teller(threading.Thread):
         if self.id == 0:
             tellers_ready_event.set()
 
-        # while True:
-        with condition:
-            while not waiting:
-                condition.wait()
-            
-            customer = waiting.pop( 0 )
-            customer.teller = self
+        while True:
+            with condition:
+                while not waiting:
+                    with customerLimit:
+                        if customers_left >= 2:
+                            print( f'Teller {self.id} []: leaving for the day.' )
+                            return
+                    condition.wait()
+                
+                customer = waiting.pop( 0 )
+                customer.teller = self
 
-        print( f'Teller {self.id} [Customer {customer.id}]: serving a customer.')
-        print( f'Teller {self.id} [Customer {customer.id}]: asks for a transaction.')
+            print( f'Teller {self.id} [Customer {customer.id}]: serving a customer.')
+            print( f'Teller {self.id} [Customer {customer.id}]: asks for a transaction.')
 
-        if( customer.transaction == 'withdrawal' ):
-            print( f'Teller {self.id} [Customer {customer.id}]: handling {customer.transaction} transaction.')
-            print( f'Teller {self.id} [Customer {customer.id}]: going to manager.')
-            
-            while not manager.acquire( blocking = False ):
+            if( customer.transaction == 'withdrawal' ):
+                print( f'Teller {self.id} [Customer {customer.id}]: handling {customer.transaction} transaction.')
+                print( f'Teller {self.id} [Customer {customer.id}]: going to manager.')
+                
+                while not manager.acquire( blocking = False ):
+                    time.sleep( 0.01 )
+
+                print( f'Teller {self.id} [Customer {customer.id}]: getting manager\'s permission.')
+                time.sleep( random.uniform( 0.005 , 0.03 ) )
+                print( f'Teller {self.id} [Customer {customer.id}]: got manager\'s permission.')
+                manager.release()
+
+            print( f'Teller {self.id} [Customer {customer.id}]: going to safe.')
+
+            while not safe.acquire( blocking = False ):
                 time.sleep( 0.01 )
 
-            print( f'Teller {self.id} [Customer {customer.id}]: getting manager\'s permission.')
-            time.sleep( random.uniform( 0.005 , 0.03 ) )
-            print( f'Teller {self.id} [Customer {customer.id}]: got manager\'s permission.')
-            manager.release()
+            print( f'Teller {self.id} [Customer {customer.id}]: enter safe.')
+            time.sleep( random.uniform(0.01 , 0.05) )
+            print( f'Teller {self.id} [Customer {customer.id}]: leaving safe.')
+            safe.release()
 
-        print( f'Teller {self.id} [Customer {customer.id}]: going to safe.')
+            print( f'Teller {self.id} [Customer {customer.id}]: finishes {customer.transaction} transaction.')
+            print( f'Teller {self.id} [Customer {customer.id}]: waits for customer to leave.')   
 
-        while not safe.acquire( blocking = False ):
-            time.sleep( 0.01 )
-
-        print( f'Teller {self.id} [Customer {customer.id}]: enter safe.')
-        time.sleep( random.uniform(0.01 , 0.05) )
-        print( f'Teller {self.id} [Customer {customer.id}]: leaving safe.')
-        safe.release()
-
-        print( f'Teller {self.id} [Customer {customer.id}]: finishes {customer.transaction} transaction.')
-        print( f'Teller {self.id} [Customer {customer.id}]: waits for customer to leave.')   
-
-        customer.done.set()      
-        
-        served.append( customer )
+            customer.done.set()      
+            
+            # with customerLimit:
+            #     servedCustomers += 1
         
     
 class Customer(threading.Thread):
@@ -114,15 +121,22 @@ class Customer(threading.Thread):
         print( f'Customer {self.id} []: leaves bank.' ) 
 
         door.release()
+
+        global customers_left
+        with customerLimit:
+            customers_left += 1
+
+        with condition:    
+            condition.notify_all()
        
-def main():
+def main():   
     tellers = []
     for i in range( 3 ):
         teller = Teller( i )
         tellers.append( teller )
 
     customers = []
-    for i in range( 1 ):
+    for i in range( 2 ):
         customer = Customer( i )
         customers.append( customer )
 
