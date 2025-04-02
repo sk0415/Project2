@@ -11,15 +11,25 @@ manager = threading.Semaphore( 1 )
 safe = threading.Semaphore( 2 )
 door = threading.Semaphore( 2 )
 
+tellers_ready_barrier = threading.Barrier( 2 )
+tellers_ready_event = threading.Event()
+
 
 class Teller(threading.Thread):
+    global readyTellers
+
     def __init__(self, id):
         super().__init__()
         self.id = id
 
     def run(self):
-        print( f'Teller {self.id} []: ready to serve' )
+        print( f'Teller {self.id} []: ready to serve' )  
         print( f'Teller {self.id} []: waiting for a customer' )
+
+        tellers_ready_barrier.wait()
+        if self.id == 0:
+            tellers_ready_event.set()
+
         # while True:
         with condition:
             while not waiting:
@@ -72,6 +82,9 @@ class Customer(threading.Thread):
 
     def run(self):
         print( f'Customer {self.id} []: wants to perform a {self.transaction} transaction.' )  
+
+        tellers_ready_event.wait()
+
         time.sleep( random.uniform( 0 , 0.1 ) )      
 
         print( f'Customer {self.id} []: going to bank.' )  
@@ -83,7 +96,7 @@ class Customer(threading.Thread):
 
         with condition:
             waiting.append( self )
-            condition.notify()
+            condition.notify_all()
 
         print( f'Customer {self.id} []: selecting teller.' )  
 
@@ -99,17 +112,31 @@ class Customer(threading.Thread):
         print( f'Customer {self.id} [Teller {self.teller.id}]: leaves teller.' ) 
         print( f'Customer {self.id} []: goes to door.' ) 
         print( f'Customer {self.id} []: leaves bank.' ) 
+
         door.release()
        
 def main():
-    teller = Teller(0)
-    customer = Customer(0)
+    tellers = []
+    for i in range( 3 ):
+        teller = Teller( i )
+        tellers.append( teller )
 
-    teller.start()
-    customer.start()
+    customers = []
+    for i in range( 1 ):
+        customer = Customer( i )
+        customers.append( customer )
 
-    customer.join()
-    teller.join()
+    for teller in tellers:
+        teller.start()
+    for customer in customers:
+        customer.start()
+
+    for customer in customers:
+        customer.join()
+    for teller in tellers:
+        teller.join()
+
+    print("The bank closes for the day.")
 
 if __name__ == '__main__':
     main()
