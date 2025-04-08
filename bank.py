@@ -75,8 +75,10 @@ class Teller(threading.Thread):
 
             print(f'Teller {self.id} [Customer {customer.id}]: finishes {customer.transaction} transaction.')
             print(f'Teller {self.id} [Customer {customer.id}]: wait for customer to leave.')
-
+            
             customer.done.set()
+            customer.left_teller.wait()
+
 
 class Customer(threading.Thread):
     def __init__(self, id):
@@ -88,6 +90,7 @@ class Customer(threading.Thread):
         self.transaction_ready = threading.Event()
         self.introduction_done = threading.Event()
         self.teller_asked = threading.Event()
+        self.left_teller = threading.Event()
 
     def run(self):
         tellers_ready_event.wait()
@@ -123,6 +126,7 @@ class Customer(threading.Thread):
         self.done.wait()
 
         print(f'Customer {self.id} [Teller {self.teller.id}]: leaves teller')
+        self.left_teller.set()
 
         while not door.acquire(blocking=False):
             time.sleep(0.01)
